@@ -8,7 +8,6 @@ window.__ModuleLoader__.load({
 
     const BUCKET_KEYS = ['uncachedInputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens']
     const PAGE_SIZE = 10
-
     const zh = {
       title: 'Token 用量',
       tabDays: '按日',
@@ -79,6 +78,8 @@ window.__ModuleLoader__.load({
       modelTokens: '{tokens} tokens',
       rateHeader: '单价（{currency} / 百万 tokens）',
       customModelPlaceholder: '例如 gpt-4o',
+      noMatch: '没有匹配的模型',
+      otherModels: '其他',
       emptyPrice: '还没有加载价格表。',
       allDates: '全部日期',
       last7: '最近 7 天',
@@ -188,6 +189,8 @@ window.__ModuleLoader__.load({
       modelTokens: '{tokens} tokens',
       rateHeader: 'Rates ({currency} / 1M tokens)',
       customModelPlaceholder: 'e.g. gpt-4o',
+      noMatch: 'No matching model',
+      otherModels: 'Other',
       emptyPrice: 'The price table is not loaded yet.',
       allDates: 'All dates',
       last7: 'Last 7 days',
@@ -430,6 +433,19 @@ window.__ModuleLoader__.load({
 .dts-add .dts-input{flex:1 1 160px;width:auto}
 .dts-add select{height:28px;padding:0 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;
   background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px}
+.dts-combo{position:relative;flex:1 1 200px;min-width:160px}
+.dts-combo .dts-input{flex:none;width:100%;padding-right:28px}
+.dts-combo-toggle{position:absolute;top:1px;right:1px;bottom:1px;width:26px;display:flex;align-items:center;
+  justify-content:center;border:0;border-radius:0 5px 5px 0;background:transparent;
+  color:var(--dsw-alias-label-secondary);cursor:pointer}
+.dts-combo-toggle:hover{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2))}
+.dts-combo-menu{padding:4px;min-width:0;max-width:none;max-height:280px}
+.dts-combo-group{padding:6px 8px 3px;font-size:10px;font-weight:600;letter-spacing:.02em;
+  color:var(--dsw-alias-label-secondary)}
+.dts-combo-option{min-height:30px;padding:5px 8px;font-size:12px}
+.dts-combo-option[aria-selected="true"]{color:var(--dsw-alias-brand-primary);font-weight:600}
+.dts-combo-option[data-active="true"]{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2))}
+.dts-combo-empty{padding:12px 8px;color:var(--dsw-alias-label-secondary);font-size:12px;text-align:center}
 .dts-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-top:4px}
 .dts-primary{height:28px;padding:0 14px;border:0;border-radius:7px;background:var(--dsw-alias-brand-primary);
   color:#fff;font:inherit;font-size:12px;cursor:pointer;transition:filter .12s ease,opacity .12s ease}
@@ -1816,6 +1832,127 @@ window.__ModuleLoader__.load({
       return rates
     }
 
+    function ModelCombo(props) {
+      const [open, setOpen] = React.useState(false)
+      const [anchor, setAnchor] = React.useState(null)
+      const [active, setActive] = React.useState(-1)
+      const wrap = React.useRef(null)
+      const menu = React.useRef(null)
+      React.useEffect(() => {
+        if (!open) return undefined
+        const onDown = (event) => {
+          const target = event.target
+          if (wrap.current !== null && wrap.current.contains(target)) return
+          if (menu.current !== null && menu.current.contains(target)) return
+          setOpen(false)
+        }
+        const onKey = (event) => { if (event.key === 'Escape') setOpen(false) }
+        document.addEventListener('mousedown', onDown)
+        document.addEventListener('keydown', onKey)
+        return () => {
+          document.removeEventListener('mousedown', onDown)
+          document.removeEventListener('keydown', onKey)
+        }
+      }, [open])
+      const query = props.value.trim().toLowerCase()
+      const groups = props.groups.map(group => ({
+        label: group.label,
+        ids: group.ids.filter(id => query === '' || id.toLowerCase().includes(query)),
+      })).filter(group => group.ids.length > 0)
+      const flat = groups.reduce((list, group) => list.concat(group.ids), [])
+      React.useEffect(() => { setActive(-1) }, [props.value, open])
+      const toggle = () => {
+        if (open) { setOpen(false); return }
+        const rect = wrap.current === null ? null : wrap.current.getBoundingClientRect()
+        if (rect === null) { setOpen(true); return }
+        const width = Math.max(rect.width, 260)
+        const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12))
+        const below = window.innerHeight - rect.bottom
+        setAnchor(below >= 280
+          ? { top: rect.bottom + 6, bottom: 'auto', left, width }
+          : { top: 'auto', bottom: window.innerHeight - rect.top + 6, left, width })
+        setOpen(true)
+        setActive(-1)
+      }
+      const choose = (id) => {
+        props.onChange(id)
+        setOpen(false)
+      }
+      const onKeyDown = (event) => {
+        if (event.key === 'Escape') { setOpen(false); return }
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          if (!open) { toggle(); return }
+          event.preventDefault()
+          if (flat.length === 0) return
+          setActive((current) => {
+            if (event.key === 'ArrowDown') return current < 0 ? 0 : Math.min(flat.length - 1, current + 1)
+            return current <= 0 ? 0 : current - 1
+          })
+          return
+        }
+        if (event.key === 'Enter' && open && active >= 0 && active < flat.length) {
+          event.preventDefault()
+          choose(flat[active])
+        }
+      }
+      const menuNode = !open || anchor === null ? null : ReactDOM.createPortal(
+        h('div', {
+          ref: menu,
+          className: 'dts-menu dts-combo-menu',
+          role: 'listbox',
+          'aria-label': props.label,
+          style: {
+            position: 'fixed',
+            left: anchor.left,
+            top: anchor.top,
+            bottom: anchor.bottom,
+            width: anchor.width,
+            zIndex: 2000,
+          },
+        },
+        groups.length === 0
+          ? h('div', { className: 'dts-combo-empty' }, props.t('noMatch'))
+          : groups.map(group => h('div', { key: group.label },
+            h('div', { className: 'dts-combo-group' }, group.label),
+            group.ids.map(id => {
+              const index = flat.indexOf(id)
+              return h('button', {
+                key: id,
+                type: 'button',
+                className: 'dts-menu-item dts-combo-option',
+                role: 'option',
+                title: id,
+                'aria-selected': id === props.value,
+                'data-active': index === active ? 'true' : 'false',
+                onMouseEnter: () => { setActive(index) },
+                onClick: () => { choose(id) },
+              }, h('span', { className: 'dts-menu-label' }, id))
+            })))),
+        document.body)
+      return h('div', { className: 'dts-combo', ref: wrap },
+        h('input', {
+          className: 'dts-input dts-combo-input',
+          type: 'text',
+          placeholder: props.placeholder,
+          'aria-label': props.label,
+          role: 'combobox',
+          'aria-expanded': open,
+          'aria-autocomplete': 'list',
+          value: props.value,
+          onChange: (event) => { props.onChange(event.target.value) },
+          onKeyDown,
+        }),
+        h('button', {
+          type: 'button',
+          className: 'dts-combo-toggle',
+          tabIndex: -1,
+          'aria-label': props.label,
+          onMouseDown: (event) => { event.preventDefault() },
+          onClick: toggle,
+        }, h('span', { className: open ? 'dts-select-chevron dts-select-chevron-open' : 'dts-select-chevron' }, CHEVRON_DOWN_ICON)),
+        menuNode)
+    }
+
     function PriceEditor(props) {
       const t = props.t
       const [draft, setDraft] = React.useState(() => toDraft(props.pricing))
@@ -1825,6 +1962,25 @@ window.__ModuleLoader__.load({
       const [newKind, setNewKind] = React.useState('flat')
       const [status, setStatus] = React.useState({ kind: 'idle', message: '' })
       const currency = draft.currency
+      const modelGroups = (() => {
+        const groups = new Map()
+        for (const model of Array.isArray(props.models) ? props.models : []) {
+          if (model === null || typeof model !== 'object') continue
+          if (typeof model.id !== 'string' || model.id === '') continue
+          const label = typeof model.providerName === 'string' && model.providerName !== ''
+            ? model.providerName
+            : (typeof model.provider === 'string' && model.provider !== '' ? model.provider : t('otherModels'))
+          let ids = groups.get(label)
+          if (ids === undefined) {
+            ids = []
+            groups.set(label, ids)
+          }
+          if (!ids.includes(model.id)) ids.push(model.id)
+        }
+        return [...groups.entries()]
+          .sort((left, right) => left[0].localeCompare(right[0]))
+          .map(([label, ids]) => ({ label, ids: ids.sort((left, right) => left.localeCompare(right)) }))
+      })()
 
       const patchModel = (id, update) => {
         setDraft((current) => {
@@ -1867,6 +2023,10 @@ window.__ModuleLoader__.load({
           },
         }))
         setNewModel('')
+        setStatus({ kind: 'idle', message: '' })
+      }
+      const chooseModel = (id) => {
+        setNewModel(id)
         setStatus({ kind: 'idle', message: '' })
       }
       const resetDefaults = () => {
@@ -1956,13 +2116,13 @@ window.__ModuleLoader__.load({
           h('div', { className: 'dts-card-head' },
             h('span', { className: 'dts-card-title' }, t('addModel'))),
           h('div', { className: 'dts-add' },
-            h('input', {
-              className: 'dts-input',
-              type: 'text',
-              placeholder: t('customModelPlaceholder'),
-              'aria-label': t('modelName'),
+            h(ModelCombo, {
+              t,
+              groups: modelGroups,
               value: newModel,
-              onChange: (event) => { setNewModel(event.target.value) },
+              label: t('modelName'),
+              placeholder: t('customModelPlaceholder'),
+              onChange: chooseModel,
             }),
             h('select', {
               'aria-label': t('modelKind'),
@@ -2217,6 +2377,7 @@ window.__ModuleLoader__.load({
           t,
           pricing: data.pricing,
           defaultPricing: data.defaultPricing,
+          models: data.availableModels === undefined ? [] : data.availableModels,
           onBack: () => { setView('stats') },
           onSaved: () => { void reload(true) },
         })

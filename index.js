@@ -35,6 +35,8 @@ const PRICES_ROUTE = '/dsh-token-stats/prices'
 const PRICES_FILE = new URL('./prices.json', import.meta.url)
 /** How long one computed payload answers repeated opens. */
 const MEMO_TTL_MS = 15_000
+/** How long the live model directory is reused inside payloads. */
+const MODELS_TTL_MS = 60_000
 /** Concurrently replayed session logs. */
 const READ_CONCURRENCY = 4
 /** The four billable buckets reported by a provider. */
@@ -638,6 +640,60 @@ function priceEntry(entry, pricing) {
 }
 
 /**
+ * Read the models this installation can currently select, grouped by provider.
+ * @param ctx - host context.
+ * @param state - plugin-owned caches.
+ * @param force - bypass the short-lived model memo.
+ * @returns detached model entries, sorted by id.
+ */
+async function readAvailableModels(ctx, state, force) {
+  const now = Date.now()
+  if (!force && state.models !== undefined && now - state.modelsAt < MODELS_TTL_MS) {
+    return state.models
+  }
+  const llm = ctx.get('llm')
+  if (llm === undefined) {
+    state.models = []
+    state.modelsAt = now
+    return []
+  }
+  let providers = []
+  try {
+    providers = llm.listProviders()
+  } catch {
+    return []
+  }
+  const models = []
+  const seen = new Set()
+  for (const provider of providers) {
+    let list = []
+    try {
+      list = await llm.listModels(provider.id)
+    } catch {
+      continue
+    }
+    if (!Array.isArray(list)) continue
+    for (const model of list) {
+      if (model === null || typeof model !== 'object') continue
+      if (typeof model.id !== 'string' || model.id === '') continue
+      if (Array.isArray(model.inputModalities) && !model.inputModalities.includes('text')) continue
+      if (seen.has(model.id)) continue
+      seen.add(model.id)
+      models.push({
+        id: model.id,
+        name: typeof model.name === 'string' && model.name !== '' ? model.name : model.id,
+        provider: provider.id,
+        providerName: typeof provider.name === 'string' && provider.name !== '' ? provider.name : provider.id,
+      })
+    }
+  }
+  models.sort((left, right) => left.id.localeCompare(right.id))
+  state.models = models
+  state.modelsAt = now
+  return models
+}
+
+/**
  * Build the complete statistics payload.
  * @param ctx - host context.
  * @param timeZone - validated zone for day boundaries.
@@ -658,6 +714,7 @@ async function computePayload(ctx, timeZone, state, force) {
   const dayOf = makeDayOf(timeZone)
   const hourOf = makeHourOf(timeZone)
   const tariffOf = time => (isPeak(time, pricing.holidays) ? 'peak' : 'offPeak')
+  const availableModels = await readAvailableModels(ctx, state, force)
   const records = await ctx.sessionQuery.listSessions()
   const persistence = ctx.get('sessionPersistence')
   const revisions = persistence === undefined ? undefined : await readRevisions(persistence)
@@ -790,6 +847,7 @@ async function computePayload(ctx, timeZone, state, force) {
     days,
     sessions,
     hourly,
+    availableModels,
     warnings,
   }
   state.payload = payload
@@ -908,6 +966,8 @@ export function apply(ctx) {
     payload: undefined,
     payloadZone: '',
     payloadAt: 0,
+    models: undefined,
+    modelsAt: 0,
     ready: Promise.resolve(),
   }
   state.ready = loadPricing().then((pricing) => {
