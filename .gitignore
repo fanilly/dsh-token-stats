@@ -1,0 +1,4 @@
+.DS_Store
+prices.json
+node_modules/
+*.log

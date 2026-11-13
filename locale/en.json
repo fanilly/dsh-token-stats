@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Token usage stats",
+    "description": "Daily and per-session token usage across all workspaces, with an estimated CNY cost from an editable model price table, under Settings → Token usage.",
+    "detail": "docs/DETAIL.md"
+  }
+}

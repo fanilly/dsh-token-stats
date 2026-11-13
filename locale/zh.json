@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Token 用量统计",
+    "description": "按日和按会话汇总全部工作区的 token 消耗，并按可编辑的模型单价估算人民币金额。入口在 设置 → Token 用量。",
+    "detail": "docs/DETAIL.md"
+  }
+}
