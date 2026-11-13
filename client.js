@@ -754,7 +754,7 @@ window.__ModuleLoader__.load({
       const plotHeight = height - top - bottom
       const step = plotWidth / items.length
       const barWidth = Math.max(3, Math.min(22, step * 0.55))
-      const labelEvery = Math.max(1, Math.ceil(items.length / 10))
+      const labelEvery = items.length <= 15 ? 1 : Math.max(1, Math.ceil(items.length / 10))
       const currency = props.currency
       const showCost = props.showCost === true
       const hovered = hover >= 0 && hover < items.length ? items[hover] : undefined
@@ -780,7 +780,9 @@ window.__ModuleLoader__.load({
         stroke: 'var(--dsw-alias-border-l2)', strokeWidth: 1, strokeDasharray: '2 3',
       })
       const bars = items.map((day, index) => {
-        const barHeight = Math.max(1, (day.totals.totalTokens / maxTokens) * plotHeight)
+        const value = day.totals.totalTokens
+        if (value <= 0) return null
+        const barHeight = Math.max(1, (value / maxTokens) * plotHeight)
         return h('rect', {
           key: 'b' + day.date,
           x: left + index * step + (step - barWidth) / 2,
@@ -1756,9 +1758,18 @@ window.__ModuleLoader__.load({
         }
       }
       if (span <= 15) {
+        const byDate = new Map(props.days.map(day => [day.date, day]))
+        const series = []
+        for (let offset = 0; offset < span; offset += 1) {
+          const date = shiftDay(spanStart, offset)
+          const day = byDate.get(date)
+          series.push(day === undefined
+            ? { date, totals: zero(), cost: 0, requests: 0 }
+            : day)
+        }
         return h(TrendChart, {
           t: props.t,
-          days: props.days,
+          days: series,
           showCost: props.showCost,
           currency: props.currency,
         })
@@ -2062,9 +2073,10 @@ window.__ModuleLoader__.load({
           setRange({ from: todayDate, to: todayDate })
         }
       }, [todayDate])
-      const cardRangeActive = rangeActive && !(range.from === todayDate && range.to === todayDate)
+      const todayOnly = range.from === todayDate && range.to === todayDate
+      const cardRangeActive = !todayOnly
       let cardStats = today
-      if (rangeActive) {
+      if (!todayOnly) {
         const totals = zero()
         let cost = 0
         let requests = 0
