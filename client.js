@@ -1774,6 +1774,217 @@ window.__ModuleLoader__.load({
       })
     }
 
+    function toDraft(pricing) {
+      const draft = {
+        currency: pricing.currency,
+        holidays: Array.isArray(pricing.holidays) ? pricing.holidays.slice() : [],
+        models: {},
+      }
+      for (const [id, entry] of Object.entries(pricing.models)) {
+        if (entry.kind === 'deepseek') {
+          draft.models[id] = {
+            kind: 'deepseek',
+            peak: { hit: String(entry.peak.hit), miss: String(entry.peak.miss), out: String(entry.peak.out) },
+            offPeak: { hit: String(entry.offPeak.hit), miss: String(entry.offPeak.miss), out: String(entry.offPeak.out) },
+          }
+        } else {
+          draft.models[id] = {
+            kind: 'flat',
+            rates: { hit: String(entry.rates.hit), miss: String(entry.rates.miss), out: String(entry.rates.out) },
+          }
+        }
+      }
+      return draft
+    }
+
+    function parseRates(value) {
+      const rates = { hit: Number(value.hit), miss: Number(value.miss), out: Number(value.out) }
+      for (const rate of [rates.hit, rates.miss, rates.out]) {
+        if (!Number.isFinite(rate) || rate < 0) return undefined
+      }
+      return rates
+    }
+
+    function PriceEditor(props) {
+      const t = props.t
+      const [draft, setDraft] = React.useState(() => toDraft(props.pricing))
+      const [holidayText, setHolidayText] = React.useState(() =>
+        Array.isArray(props.pricing.holidays) ? props.pricing.holidays.join(', ') : '')
+      const [newModel, setNewModel] = React.useState('')
+      const [newKind, setNewKind] = React.useState('flat')
+      const [status, setStatus] = React.useState({ kind: 'idle', message: '' })
+      const currency = draft.currency
+
+      const patchModel = (id, update) => {
+        setDraft((current) => {
+          const models = { ...current.models }
+          models[id] = update(models[id])
+          return { ...current, models }
+        })
+      }
+      const setRate = (id, group, field, value) => {
+        patchModel(id, (entry) => {
+          if (entry.kind === 'deepseek') {
+            const bucket = group === 'peak' ? 'peak' : 'offPeak'
+            return { ...entry, [bucket]: { ...entry[bucket], [field]: value } }
+          }
+          return { ...entry, rates: { ...entry.rates, [field]: value } }
+        })
+      }
+      const removeModel = (id) => {
+        setDraft((current) => {
+          const models = { ...current.models }
+          delete models[id]
+          return { ...current, models }
+        })
+      }
+      const addModel = () => {
+        const id = newModel.trim()
+        if (id === '') { setStatus({ kind: 'error', message: t('emptyModel') }); return }
+        if (draft.models[id] !== undefined) { setStatus({ kind: 'error', message: t('duplicateModel') }); return }
+        setDraft((current) => ({
+          ...current,
+          models: {
+            ...current.models,
+            [id]: newKind === 'deepseek'
+              ? {
+                kind: 'deepseek',
+                peak: { hit: '0', miss: '0', out: '0' },
+                offPeak: { hit: '0', miss: '0', out: '0' },
+              }
+              : { kind: 'flat', rates: { hit: '0', miss: '0', out: '0' } },
+          },
+        }))
+        setNewModel('')
+        setStatus({ kind: 'idle', message: '' })
+      }
+      const resetDefaults = () => {
+        setDraft(toDraft(props.defaultPricing))
+        setHolidayText(Array.isArray(props.defaultPricing.holidays) ? props.defaultPricing.holidays.join(', ') : '')
+        setStatus({ kind: 'idle', message: '' })
+      }
+      const save = async () => {
+        const models = {}
+        for (const [id, entry] of Object.entries(draft.models)) {
+          if (id.trim() === '') { setStatus({ kind: 'error', message: t('emptyModel') }); return }
+          if (entry.kind === 'deepseek') {
+            const peak = parseRates(entry.peak)
+            const offPeak = parseRates(entry.offPeak)
+            if (peak === undefined || offPeak === undefined) { setStatus({ kind: 'error', message: t('invalidRates') }); return }
+            models[id] = { kind: 'deepseek', peak, offPeak }
+          } else {
+            const rates = parseRates(entry.rates)
+            if (rates === undefined) { setStatus({ kind: 'error', message: t('invalidRates') }); return }
+            models[id] = { kind: 'flat', rates }
+          }
+        }
+        if (Object.keys(models).length === 0) { setStatus({ kind: 'error', message: t('noModels') }); return }
+        const holidays = holidayText.split(/[\s,;]+/).map(part => part.trim()).filter(part => /^\d{4}-\d{2}-\d{2}$/.test(part))
+        setStatus({ kind: 'saving', message: t('saving') })
+        try {
+          await postPricing({ currency: draft.currency, holidays, models })
+          setStatus({ kind: 'ok', message: t('saved') })
+          props.onSaved()
+        } catch (error) {
+          const message = error === null || error === undefined ? '' : String(error.message === undefined ? error : error.message)
+          setStatus({ kind: 'error', message: t('priceSaveFailed', { message }) })
+        }
+      }
+
+      const ids = Object.keys(draft.models).sort()
+      return h('div', { className: 'dts-section', 'aria-label': t('priceTitle') },
+        h('div', { className: 'dts-head' },
+          h('div', { className: 'dts-head-main' },
+            h('div', { className: 'dts-head-title' }, t('priceTitle')),
+            h('div', { className: 'dts-head-sub' }, t('rateHeader', { currency }))),
+          h('div', { className: 'dts-head-actions' },
+            h('button', {
+              type: 'button',
+              className: 'dts-refresh',
+              onClick: props.onBack,
+            }, t('back')))),
+        h('div', { className: 'dts-price-intro' }, t('priceIntro')),
+        ids.length === 0
+          ? h('div', { className: 'dts-empty' }, t('emptyPrice'))
+          : ids.map((id) => {
+            const entry = draft.models[id]
+            const labels = entry.kind === 'deepseek'
+              ? [[t('peak'), 'peak'], [t('offPeak'), 'offPeak']]
+              : [[t('flat'), 'rates']]
+            return h('div', { className: 'dts-card', key: id },
+              h('div', { className: 'dts-card-head' },
+                h('span', { className: 'dts-card-title', title: id }, id),
+                h('span', { className: 'dts-badge' }, entry.kind === 'deepseek' ? t('kindPeak') : t('kindFlat')),
+                h('button', {
+                  type: 'button',
+                  className: 'dts-card-remove',
+                  onClick: () => { removeModel(id) },
+                }, t('remove'))),
+              h('div', { className: 'dts-rate-head' },
+                h('span', null, ''),
+                h('span', null, t('hit')),
+                h('span', null, t('miss')),
+                h('span', null, t('out'))),
+              labels.map(([label, group]) => {
+                const values = entry.kind === 'deepseek' ? entry[group] : entry.rates
+                return h('div', { className: 'dts-rate-row', key: group },
+                  h('span', { className: 'dts-rate-label' }, label),
+                  ['hit', 'miss', 'out'].map(field => h('input', {
+                    key: field,
+                    className: 'dts-input',
+                    type: 'number',
+                    step: 'any',
+                    min: '0',
+                    'aria-label': t(field) + ' ' + label,
+                    value: values[field],
+                    onChange: (event) => { setRate(id, group, field, event.target.value) },
+                  })))
+              }))
+          }),
+        h('div', { className: 'dts-card' },
+          h('div', { className: 'dts-card-head' },
+            h('span', { className: 'dts-card-title' }, t('addModel'))),
+          h('div', { className: 'dts-add' },
+            h('input', {
+              className: 'dts-input',
+              type: 'text',
+              placeholder: t('customModelPlaceholder'),
+              'aria-label': t('modelName'),
+              value: newModel,
+              onChange: (event) => { setNewModel(event.target.value) },
+            }),
+            h('select', {
+              'aria-label': t('modelKind'),
+              value: newKind,
+              onChange: (event) => { setNewKind(event.target.value) },
+            },
+            h('option', { value: 'flat' }, t('kindFlat')),
+            h('option', { value: 'deepseek' }, t('kindPeak'))),
+            h('button', { type: 'button', className: 'dts-refresh', onClick: addModel }, t('addModel')))),
+        h('div', null,
+          h('label', { className: 'dts-field-label', htmlFor: 'dts-holidays' }, t('holidays')),
+          h('input', {
+            id: 'dts-holidays',
+            className: 'dts-input dts-holidays',
+            type: 'text',
+            placeholder: '2026-01-01, 2026-02-17',
+            value: holidayText,
+            onChange: (event) => { setHolidayText(event.target.value) },
+          }),
+          h('div', { className: 'dts-note' }, t('holidaysHint'))),
+        h('div', { className: 'dts-actions' },
+          h('button', {
+            type: 'button',
+            className: 'dts-primary',
+            disabled: status.kind === 'saving',
+            onClick: () => { void save() },
+          }, status.kind === 'saving' ? t('saving') : t('save')),
+          h('button', { type: 'button', className: 'dts-refresh', onClick: resetDefaults }, t('resetDefaults')),
+          status.message === ''
+            ? null
+            : h('span', { className: 'dts-status ' + (status.kind === 'error' ? 'dts-bad' : 'dts-ok') }, status.message)))
+    }
+
     function StatsSection(props) {
       const t = props.t
       const { state, reload } = useStatsData()
