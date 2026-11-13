@@ -108,3 +108,9 @@ token-stats/
 开发与验证环境：DSH `0.2.2-rc.2`（Desktop，macOS）。Web 版使用同样的 `webServer` 路由，预期可用但未单独验证。
 
 > 当前包名是 `@local/dsh-token-stats`。如果以后要发布到 npm，需要同时修改 `package.json`、`cordis.patch.yml`、`client.js` 中的模块 id，并重新安装。
+
+## 许可证
+
+MIT License，详见 [LICENSE](LICENSE)。
+
+Copyright (c) 2026 与归
