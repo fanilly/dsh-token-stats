@@ -64,6 +64,24 @@ const DEFAULT_PRICING = {
       peak: { hit: 0.30, miss: 9, out: 27 },
       offPeak: { hit: 0.15, miss: 4.5, out: 13.5 },
     },
+    'deepseek-v4.1-flash': {
+      kind: 'deepseek',
+      peak: { hit: 0.2, miss: 2, out: 8 },
+      offPeak: { hit: 0.1, miss: 1, out: 4 },
+    },
+    'deepseek-v4.1-flash-1017': {
+      kind: 'deepseek',
+      peak: { hit: 0.2, miss: 2, out: 8 },
+      offPeak: { hit: 0.1, miss: 1, out: 4 },
+    },
+    'qwen3.8-max': {
+      kind: 'flat',
+      rates: { hit: 1.2, miss: 12, out: 36 },
+    },
+    'qwen3.8-flash': {
+      kind: 'flat',
+      rates: { hit: 0.08, miss: 0.8, out: 2.7 },
+    },
   },
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-token-stats",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "private": true,
   "license": "MIT",
   "description": "Daily and per-session token usage with an estimated CNY cost, opened from Settings.",

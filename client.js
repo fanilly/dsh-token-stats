@@ -47,6 +47,8 @@ window.__ModuleLoader__.load({
       legendTokens: 'Token 消耗',
       legendCost: '预估金额',
       unpriced: '未定价 {tokens} tokens',
+      unpricedShort: '未定价',
+      notInCatalog: '不在目录中',
       editPrices: '定价设置',
       priceTitle: '定价设置',
       priceIntro: '金额按下面的单价估算，不影响实际账单。单价单位：每百万 tokens。DeepSeek 使用高峰/闲时价，其他模型使用统一价。',
@@ -158,6 +160,8 @@ window.__ModuleLoader__.load({
       legendTokens: 'Tokens',
       legendCost: 'Est. cost',
       unpriced: '{tokens} tokens unpriced',
+      unpricedShort: 'Unpriced',
+      notInCatalog: 'Not in catalog',
       editPrices: 'Prices',
       priceTitle: 'Price settings',
       priceIntro: 'Amounts are estimated from the rates below and are not a bill. Rates are per million tokens. DeepSeek uses peak/off-peak rates; other models use one flat rate.',
@@ -398,6 +402,7 @@ window.__ModuleLoader__.load({
 .dts-session-cost{flex:0 0 auto;min-width:58px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .dts-badge{flex:0 0 auto;padding:0 5px;border:1px solid var(--dsw-alias-border-l1);border-radius:4px;
   color:var(--dsw-alias-label-secondary);font-size:10px;line-height:15px;white-space:nowrap}
+.dts-badge-warn{color:var(--dsw-alias-state-warn-primary);border-color:var(--dsw-alias-state-warn-primary)}
 .dts-child-line{display:flex;align-items:center;gap:8px;padding:1px 0;color:var(--dsw-alias-label-secondary);font-size:12px}
 .dts-child-line .dts-session-title{color:var(--dsw-alias-label-secondary)}
 .dts-child-num{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-primary)}
@@ -996,6 +1001,13 @@ window.__ModuleLoader__.load({
       const shownCost = rollup === undefined
         ? ownCost
         : ownCost + children.reduce((sum, child) => sum + costOfSession(child), 0)
+      const unpricedOf = (item) => props.date === undefined && typeof item.unpricedTokens === 'number'
+        ? item.unpricedTokens
+        : 0
+      const shownUnpriced = unpricedOf(session) + children.reduce((sum, child) => sum + unpricedOf(child), 0)
+      const costTitle = props.t('costHint') + (shownUnpriced > 0
+        ? ' · ' + props.t('unpriced', { tokens: compact(shownUnpriced) })
+        : '')
       return h('div', null,
         h('button', {
           type: 'button',
@@ -1010,7 +1022,10 @@ window.__ModuleLoader__.load({
         h('span', { className: 'dts-session-dir', title: session.cwd === undefined ? '' : session.cwd },
           dirName(session.cwd)),
         h('span', { className: 'dts-session-total', title: hint }, compact(shown)),
-        showCost ? h('span', { className: 'dts-session-cost', title: props.t('costHint') }, money(shownCost, props.currency)) : null,
+        showCost
+          ? h('span', { className: 'dts-session-cost', title: costTitle },
+            shownCost === 0 && shownUnpriced > 0 ? props.t('unpricedShort') : money(shownCost, props.currency))
+          : null,
         children.length === 0 ? null : h('span', { className: 'dts-badge' }, props.t('children', { count: children.length }))),
         expanded ? h(SessionDetail, {
           t: props.t,
@@ -2063,6 +2078,7 @@ window.__ModuleLoader__.load({
       }
 
       const ids = Object.keys(draft.models).sort()
+      const catalogIds = new Set((Array.isArray(props.models) ? props.models : []).map(model => model.id))
       return h('div', { className: 'dts-section', 'aria-label': t('priceTitle') },
         h('div', { className: 'dts-head' },
           h('div', { className: 'dts-head-main' },
@@ -2086,6 +2102,9 @@ window.__ModuleLoader__.load({
               h('div', { className: 'dts-card-head' },
                 h('span', { className: 'dts-card-title', title: id }, id),
                 h('span', { className: 'dts-badge' }, entry.kind === 'deepseek' ? t('kindPeak') : t('kindFlat')),
+                catalogIds.size > 0 && !catalogIds.has(id)
+                  ? h('span', { className: 'dts-badge dts-badge-warn', title: t('notInCatalog') }, t('notInCatalog'))
+                  : null,
                 h('button', {
                   type: 'button',
                   className: 'dts-card-remove',
